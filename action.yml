@@ -1,5 +1,5 @@
 name: Install .NET SDK
-description: Install current LTS and STS versions of .NET SDK. Leverages the official setup-dotnet action pre-configured specifically for the Codebelt methodology.
+description: Install current LTS and STS versions of .NET SDK. Leverages the official setup-dotnet action pre-configured specifically for the majority.
 runs:
   using: composite
   steps:
