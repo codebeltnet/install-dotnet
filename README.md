@@ -1,6 +1,6 @@
 # Install .NET SDK
 
-Install current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) of .NET SDK. Leverages the official [setup-dotnet action](https://github.com/actions/setup-dotnet) pre-configured specifically for the majority.
+Install current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) of .NET SDK with optional support for preview version of vNext. Leverages the official [setup-dotnet action](https://github.com/actions/setup-dotnet) pre-configured specifically for the majority.
 
 > This action is part of the Codebelt umbrella and ensures a consistent way of: 
 > 
@@ -23,7 +23,11 @@ uses: codebeltnet/install-dotnet@v1
 
 ### Inputs
 
-This action has no inputs.
+```yaml
+with:
+  # Whether to include preview versions of .NET SDK or not. Default is to exclude preview versions.
+  includePreview: 'false'
+```
 
 ### Outputs
 
@@ -37,6 +41,16 @@ This action has no outputs.
 steps:
   - name: Install .NET
     uses: codebeltnet/install-dotnet@v1
+```
+
+### Install both supported and unsupported versions of .NET SDK
+
+```yaml
+steps:
+  - name: Install .NET
+    uses: codebeltnet/install-dotnet@v1
+    with:
+      includePreview: 'true'
 ```
 
 ### Sample workflow for .NET Class Library
