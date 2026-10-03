@@ -1,6 +1,6 @@
 # Install .NET SDK
 
-Install current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) of .NET SDK with optional support for preview version of vNext. Leverages the official [setup-dotnet action](https://github.com/actions/setup-dotnet) pre-configured specifically for the majority.
+Install the current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) of the .NET SDK with optional support for the current preview/go-live SDK. The action resolves the current GA LTS and STS channels from [.NET releases-index.json](https://github.com/dotnet/core/blob/main/release-notes/releases-index.json), resolves preview support only from `preview`/`go-live` channels when requested, and only installs exact SDK versions that are missing from the runner. Leverages the official [setup-dotnet action](https://github.com/actions/setup-dotnet) pre-configured specifically for the majority.
 
 > This action is part of the Codebelt umbrella and ensures a consistent way of: 
 > 
@@ -18,14 +18,14 @@ Install current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platfo
 To use this action in your GitHub repository, you can follow these steps:
 
 ```yaml
-uses: codebeltnet/install-dotnet@v1
+uses: codebeltnet/install-dotnet@v3
 ```
 
 ### Inputs
 
 ```yaml
 with:
-  # Whether to include preview versions of .NET SDK or not. Default is to exclude preview versions.
+  # Whether to include the current preview/go-live .NET SDK or not. Default is to exclude preview versions.
   includePreview: 'false'
 ```
 
@@ -35,20 +35,20 @@ This action has no outputs.
 
 ## Examples
 
-### Install all supported versions of .NET SDK
+### Install the current GA LTS and STS .NET SDKs
 
 ```yaml
 steps:
   - name: Install .NET
-    uses: codebeltnet/install-dotnet@v1
+    uses: codebeltnet/install-dotnet@v3
 ```
 
-### Install both supported and unsupported versions of .NET SDK
+### Install the current GA SDKs plus the current preview/go-live SDK
 
 ```yaml
 steps:
   - name: Install .NET
-    uses: codebeltnet/install-dotnet@v1
+    uses: codebeltnet/install-dotnet@v3
     with:
       includePreview: 'true'
 ```
@@ -81,7 +81,7 @@ on:
 jobs:
   build:
     name: 🛠️ Build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     outputs:
       version: ${{ steps.minver-calculate.outputs.version }}
     steps:
@@ -89,7 +89,7 @@ jobs:
         uses: codebeltnet/git-checkout@v1
 
       - name: Install .NET
-        uses: codebeltnet/install-dotnet@v1
+        uses: codebeltnet/install-dotnet@v3
 
       - name: Install MinVer
         uses: codebeltnet/dotnet-tool-install-minver@v1
@@ -120,7 +120,7 @@ jobs:
 
   pack:
     name: 📦 Pack
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         configuration: [Debug, Release]
@@ -138,7 +138,7 @@ jobs:
     needs: [build]
     strategy:
       matrix:
-        os: [ubuntu-22.04, windows-2022]
+        os: [ubuntu-26.04, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
