@@ -1,31 +1,127 @@
 name: Install .NET SDK
-description: Install current LTS and STS versions of .NET SDK. Allows including preview version of vNext.
+description: Install the current GA LTS and STS .NET SDKs and optionally the current preview/go-live SDK.
 inputs:
   includePreview:
-    description: Whether to include preview versions of .NET SDK or not. Default is to exclude preview versions.
+    description: Whether to include preview/go-live .NET SDK versions or not. Default is to exclude preview versions.
     required: false
     default: 'false'
 runs:
   using: composite
   steps:
-  - name: 8.0.x
-    uses: actions/setup-dotnet@v5
+  - id: resolveSdkPlan
+    name: Resolve required .NET SDK versions
+    shell: pwsh
+    run: |
+      Set-StrictMode -Version Latest
+      $ErrorActionPreference = 'Stop'
+
+      $previewSupportPhases = @('preview', 'go-live')
+      $includePreview = '${{ inputs.includePreview }}' -eq 'true'
+
+      $releaseIndex = Invoke-RestMethod -Uri 'https://raw.githubusercontent.com/dotnet/core/main/release-notes/releases-index.json'
+      $candidateChannels = @(
+        $releaseIndex.'releases-index' |
+          Where-Object {
+            $_.product -eq '.NET' -and
+            $_.'release-type' -in @('lts', 'sts') -and
+            -not [string]::IsNullOrWhiteSpace($_.'latest-sdk')
+          } |
+          Sort-Object { [Version]($_.'channel-version') }
+      )
+
+      $stableChannels = @(
+        $candidateChannels |
+          Where-Object {
+            $_.'support-phase' -ne 'eol' -and
+            $_.'support-phase' -notin $previewSupportPhases
+          }
+      )
+
+      $currentLtsChannel = @(
+        $stableChannels |
+          Where-Object { $_.'release-type' -eq 'lts' } |
+          Sort-Object { [Version]($_.'channel-version') }
+      ) | Select-Object -Last 1
+
+      $currentStsChannel = @(
+        $stableChannels |
+          Where-Object { $_.'release-type' -eq 'sts' } |
+          Sort-Object { [Version]($_.'channel-version') }
+      ) | Select-Object -Last 1
+
+      if ($null -eq $currentLtsChannel -and $null -eq $currentStsChannel) {
+        throw 'Unable to resolve the current GA LTS or STS .NET SDK from releases-index.json.'
+      }
+
+      $requiredChannels = [System.Collections.Generic.List[object]]::new()
+      if ($null -ne $currentLtsChannel) { $requiredChannels.Add($currentLtsChannel) }
+      if ($null -ne $currentStsChannel) { $requiredChannels.Add($currentStsChannel) }
+
+      $previewChannel = $null
+      if ($includePreview) {
+        $previewChannel = @(
+          $candidateChannels |
+            Where-Object { $_.'support-phase' -in $previewSupportPhases } |
+            Sort-Object { [Version]($_.'channel-version') }
+        ) | Select-Object -Last 1
+
+        if ($null -ne $previewChannel) {
+          $requiredChannels.Add($previewChannel)
+        }
+      }
+
+      $requiredVersions = @(
+        $requiredChannels |
+          ForEach-Object { $_.'latest-sdk' } |
+          Select-Object -Unique
+      )
+
+      $installedVersions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+      $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+      if ($null -ne $dotnet) {
+        foreach ($line in (& dotnet --list-sdks)) {
+          if ($line -match '^(?<version>\S+)\s+\[.+\]$') {
+            [void]$installedVersions.Add($Matches.version)
+          }
+        }
+      }
+
+      $missingVersions = @($requiredVersions | Where-Object { -not $installedVersions.Contains($_) })
+
+      Write-Host 'Resolved required .NET SDKs:'
+      if ($null -ne $currentLtsChannel) {
+        Write-Host " - current LTS: $($currentLtsChannel.'channel-version') [$($currentLtsChannel.'support-phase')] => $($currentLtsChannel.'latest-sdk')"
+      }
+      if ($null -ne $currentStsChannel) {
+        Write-Host " - current STS: $($currentStsChannel.'channel-version') [$($currentStsChannel.'support-phase')] => $($currentStsChannel.'latest-sdk')"
+      }
+      if ($null -ne $previewChannel) {
+        Write-Host " - preview/go-live: $($previewChannel.'channel-version') [$($previewChannel.'support-phase')] => $($previewChannel.'latest-sdk')"
+      }
+
+      if ($installedVersions.Count -gt 0) {
+        $presentVersions = @($requiredVersions | Where-Object { $installedVersions.Contains($_) })
+        if ($presentVersions.Count -gt 0) {
+          Write-Host "Already installed SDKs: $($presentVersions -join ', ')"
+        }
+      }
+
+      if ($missingVersions.Count -eq 0) {
+        Write-Host 'All required .NET SDKs are already installed.'
+        'missingVersions=' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8NoBOM -Append
+      } else {
+        Write-Host "Missing SDKs to install: $($missingVersions -join ', ')"
+
+        $delimiter = [Guid]::NewGuid().ToString('N')
+        "missingVersions<<$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8NoBOM -Append
+        $missingVersions | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8NoBOM -Append
+        $delimiter | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8NoBOM -Append
+      }
+  - if: steps.resolveSdkPlan.outputs.missingVersions != ''
+    name: Install missing .NET SDKs
+    uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
     with:
-      dotnet-version: 8.0.x
-  - name: 9.0.x
-    uses: actions/setup-dotnet@v5
-    with:
-      dotnet-version: 9.0.x
-  - name: 10.0.x
-    uses: actions/setup-dotnet@v5
-    with:
-      dotnet-version: 10.0.x
-  - if: inputs.includePreview == 'true'
-    name: 11.0.x
-    uses: actions/setup-dotnet@v5
-    with:
-      dotnet-version: 11.0.x
-      dotnet-quality: preview
+      dotnet-version: ${{ steps.resolveSdkPlan.outputs.missingVersions }}
 branding:
   icon: 'umbrella'
   color: 'blue'
