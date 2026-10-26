@@ -1,6 +1,6 @@
 # Install .NET SDK
 
-Install the current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) of the .NET SDK with optional support for the current preview/go-live SDK. The action resolves the current GA LTS and STS channels from [.NET releases-index.json](https://github.com/dotnet/core/blob/main/release-notes/releases-index.json), resolves preview support only from `preview`/`go-live` channels when requested, and only installs exact SDK versions that are missing from the runner. Leverages the official [setup-dotnet action](https://github.com/actions/setup-dotnet) pre-configured specifically for the majority.
+Install the current [LTS and STS versions](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) of the .NET SDK with optional support for the current preview/go-live SDK. The action resolves the current GA LTS and STS channels from [.NET releases-index.json](https://github.com/dotnet/core/blob/main/release-notes/releases-index.json) and reuses installed SDKs with the same major version by default. When no installed SDK satisfies the selected precision, it installs the latest exact SDK version for that channel using the official [setup-dotnet action](https://github.com/actions/setup-dotnet). Preview support is resolved only from `preview`/`go-live` channels when requested.
 
 > This action is part of the Codebelt umbrella and ensures a consistent way of: 
 > 
@@ -25,9 +25,27 @@ uses: codebeltnet/install-dotnet@v3
 
 ```yaml
 with:
+  # Match installed SDKs by major (default), minor, or patch.
+  versionPrecision: 'major'
   # Whether to include the current preview/go-live .NET SDK or not. Default is to exclude preview versions.
   includePreview: 'false'
 ```
+
+### Choosing version precision
+
+For applications, we recommend `patch` so the action ensures the latest exact SDK versions resolved from Microsoft's release index are installed. For libraries and other uses, keep the default `major` to reuse the SDKs already provided by the runner and avoid unnecessary installations.
+
+| `versionPrecision` | Installed SDK requirement | Example when the resolved SDK is `10.0.403` |
+| --- | --- | --- |
+| `major` (default) | Same major version | Reuses `10.0.401` or `10.1.100` |
+| `minor` | Same major and minor version | Reuses `10.0.401`; installs `10.0.403` if only `10.1.100` is present |
+| `patch` | Exact resolved SDK version | Reuses only `10.0.403` |
+
+All three modes install the latest resolved version when a matching SDK is absent. `patch` preserves the previous exact-match behavior; it follows the release index over time rather than pinning a fixed SDK version. `major` and `minor` accept installed versions that are older or newer than the resolved version within the matching range.
+
+Stable SDK requirements never accept prerelease SDKs. With `includePreview: 'true'`, the same precision applies to the current preview/go-live requirement: `major` and `minor` may reuse an older prerelease, while `patch` requires the full resolved prerelease version, including its suffix. A stable SDK does not satisfy a preview requirement.
+
+This input controls installation, not which SDK the .NET CLI selects or which runtime an application uses. A repository's [`global.json`](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json) still controls SDK selection, including version and roll-forward constraints. Without it, the CLI normally selects the highest installed SDK, including previews. Use a compatible `global.json` policy with `major` or `minor`; `patch` does not automatically install a different historical version pinned by that file. This action does not modify `global.json` or manage deployment runtime versions, and matching by major does not promise identical build output across SDK versions.
 
 ### Outputs
 
@@ -51,6 +69,26 @@ steps:
     uses: codebeltnet/install-dotnet@v3
     with:
       includePreview: 'true'
+```
+
+### Ensure the latest exact SDK versions for an application
+
+```yaml
+steps:
+  - name: Install .NET
+    uses: codebeltnet/install-dotnet@v3
+    with:
+      versionPrecision: 'patch'
+```
+
+### Reuse installed SDKs within the current major/minor channels
+
+```yaml
+steps:
+  - name: Install .NET
+    uses: codebeltnet/install-dotnet@v3
+    with:
+      versionPrecision: 'minor'
 ```
 
 ### Sample workflow for .NET Class Library
@@ -145,7 +183,7 @@ jobs:
         uses: codebeltnet/git-checkout@v1
 
       - name: Install .NET
-        uses: codebeltnet/install-dotnet@v1
+        uses: codebeltnet/install-dotnet@v3
 
       - name: Install .NET Tool - Report Generator
         uses: codebeltnet/dotnet-tool-install-reportgenerator@v1
@@ -171,7 +209,7 @@ jobs:
         uses: codebeltnet/git-checkout@v1
 
       - name: Install .NET
-        uses: codebeltnet/install-dotnet@v1
+        uses: codebeltnet/install-dotnet@v3
 
       - name: Install .NET Tool - Sonar Scanner
         uses: codebeltnet/dotnet-tool-install-sonarscanner@v1
@@ -221,7 +259,7 @@ jobs:
         uses: codebeltnet/git-checkout@v1
 
       - name: Install .NET
-        uses: codebeltnet/install-dotnet@v1
+        uses: codebeltnet/install-dotnet@v3
 
       - name: Restore Dependencies
         uses: codebeltnet/dotnet-restore@v1

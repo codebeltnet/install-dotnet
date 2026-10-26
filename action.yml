@@ -1,6 +1,10 @@
 name: Install .NET SDK
 description: Install the current GA LTS and STS .NET SDKs and optionally the current preview/go-live SDK.
 inputs:
+  versionPrecision:
+    description: Precision used to match installed SDKs (major, minor, or patch). Default is major; patch requires the exact latest resolved SDK version.
+    required: false
+    default: 'major'
   includePreview:
     description: Whether to include preview/go-live .NET SDK versions or not. Default is to exclude preview versions.
     required: false
@@ -11,9 +15,34 @@ runs:
   - id: resolveSdkPlan
     name: Resolve required .NET SDK versions
     shell: pwsh
+    env:
+      CB_DOTNET_VERSION_PRECISION: ${{ inputs.versionPrecision }}
     run: |
       Set-StrictMode -Version Latest
       $ErrorActionPreference = 'Stop'
+
+      $versionPrecision = $env:CB_DOTNET_VERSION_PRECISION
+      if ($versionPrecision -notin @('major', 'minor', 'patch')) {
+        throw 'versionPrecision must be one of: major, minor, patch.'
+      }
+
+      function Test-SdkVersionMatch {
+        param([string] $InstalledVersion, [string] $RequiredVersion)
+
+        if ($versionPrecision -eq 'patch') {
+          return $InstalledVersion -eq $RequiredVersion
+        }
+
+        $installedSdk = [System.Management.Automation.SemanticVersion]$InstalledVersion
+        $requiredSdk = [System.Management.Automation.SemanticVersion]$RequiredVersion
+        if ([string]::IsNullOrEmpty($installedSdk.PreReleaseLabel) -ne [string]::IsNullOrEmpty($requiredSdk.PreReleaseLabel)) {
+          return $false
+        }
+        if ($installedSdk.Major -ne $requiredSdk.Major) {
+          return $false
+        }
+        return $versionPrecision -eq 'major' -or $installedSdk.Minor -eq $requiredSdk.Minor
+      }
 
       $previewSupportPhases = @('preview', 'go-live')
       $includePreview = '${{ inputs.includePreview }}' -eq 'true'
@@ -79,15 +108,33 @@ runs:
       $installedVersions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
       $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
       if ($null -ne $dotnet) {
-        foreach ($line in (& dotnet --list-sdks)) {
+        $sdkLines = @(& dotnet --list-sdks)
+        if ($LASTEXITCODE -ne 0) {
+          throw "dotnet --list-sdks failed with exit code $LASTEXITCODE. Check the runner's .NET installation before retrying."
+        }
+        foreach ($line in $sdkLines) {
           if ($line -match '^(?<version>\S+)\s+\[.+\]$') {
             [void]$installedVersions.Add($Matches.version)
           }
         }
       }
 
-      $missingVersions = @($requiredVersions | Where-Object { -not $installedVersions.Contains($_) })
+      $missingVersions = [System.Collections.Generic.List[string]]::new()
+      $presentVersions = [System.Collections.Generic.List[string]]::new()
+      foreach ($requiredVersion in $requiredVersions) {
+        $matchingVersions = @(
+          $installedVersions |
+            Where-Object { Test-SdkVersionMatch -InstalledVersion $_ -RequiredVersion $requiredVersion } |
+            Sort-Object { [System.Management.Automation.SemanticVersion]$_ } -Descending
+        )
+        if ($matchingVersions.Count -eq 0) {
+          $missingVersions.Add($requiredVersion)
+        } else {
+          $presentVersions.Add($matchingVersions[0])
+        }
+      }
 
+      Write-Host "Version precision: $versionPrecision"
       Write-Host 'Resolved required .NET SDKs:'
       if ($null -ne $currentLtsChannel) {
         Write-Host " - current LTS: $($currentLtsChannel.'channel-version') [$($currentLtsChannel.'support-phase')] => $($currentLtsChannel.'latest-sdk')"
@@ -99,11 +146,8 @@ runs:
         Write-Host " - preview/go-live: $($previewChannel.'channel-version') [$($previewChannel.'support-phase')] => $($previewChannel.'latest-sdk')"
       }
 
-      if ($installedVersions.Count -gt 0) {
-        $presentVersions = @($requiredVersions | Where-Object { $installedVersions.Contains($_) })
-        if ($presentVersions.Count -gt 0) {
-          Write-Host "Already installed SDKs: $($presentVersions -join ', ')"
-        }
+      if ($presentVersions.Count -gt 0) {
+        Write-Host "Already installed matching SDKs: $($presentVersions -join ', ')"
       }
 
       if ($missingVersions.Count -eq 0) {
